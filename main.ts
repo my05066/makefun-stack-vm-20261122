@@ -7,15 +7,11 @@ const MEMORY_SIZE = 256;
 const STEP_LIMIT = 1_000_000;
 const OUTPUT_LIMIT = 65_536;
 
-type Instruction = {
-  immediate: number;
-  pops: number;
-  pushes: number;
-};
+type Shape = [immediate: number, pops: number, pushes: number];
 
-const instructions: (Instruction | undefined)[] = Array(256);
-function define(bytes: number[], immediate: number, pops: number, pushes: number) {
-  for (const byte of bytes) instructions[byte] = { immediate, pops, pushes };
+const shapes: (Shape | undefined)[] = [];
+function define(bytes: number[], ...shape: Shape) {
+  for (const byte of bytes) shapes[byte] = shape;
 }
 
 define([0x00, 0x34], 0, 0, 0);
@@ -54,15 +50,16 @@ function execute(program: Buffer, input: Buffer) {
   for (let step = 0; step < STEP_LIMIT; step++) {
     if (pc < 0 || pc >= program.length) return finish(9);
     const opcode = program[pc++];
-    const instruction = instructions[opcode];
-    if (instruction === undefined) return finish(5);
+    const shape = shapes[opcode];
+    if (!shape) return finish(5);
 
+    const [immediate, pops, pushes] = shape;
     const operand = pc;
-    pc += instruction.immediate;
+    pc += immediate;
     if (pc > program.length) return finish(9);
-    const base = depth - instruction.pops;
+    const base = depth - pops;
     if (base < 0) return finish(2);
-    const nextDepth = base + instruction.pushes;
+    const nextDepth = base + pushes;
     if (nextDepth > STACK_LIMIT) return finish(3);
 
     // The consumed operands remain in place until the instruction replaces them.
@@ -97,14 +94,14 @@ function execute(program: Buffer, input: Buffer) {
         if (opcode === 0x15) stack[base] = ((a >>> 0) / (b >>> 0)) | 0;
         if (opcode === 0x16) stack[base] = ((a >>> 0) % (b >>> 0)) | 0;
         break;
-      case 0x17: stack[base] = -a | 0; break;
+      case 0x17: stack[base] = -a; break;
       case 0x18: stack[base] = a & b; break;
       case 0x19: stack[base] = a | b; break;
       case 0x1a: stack[base] = a ^ b; break;
       case 0x1b: stack[base] = ~a; break;
       case 0x1c: stack[base] = a << b; break;
       case 0x1d: stack[base] = a >> b; break;
-      case 0x1e: stack[base] = (a >>> b) | 0; break;
+      case 0x1e: stack[base] = a >>> b; break;
       case 0x20: stack[base] = Number(a === b); break;
       case 0x21: stack[base] = Number(a < b); break;
       case 0x22: stack[base] = Number((a >>> 0) < (b >>> 0)); break;
@@ -135,8 +132,9 @@ function execute(program: Buffer, input: Buffer) {
       case 0x50: {
         const decimal = String(a);
         if (written + decimal.length > OUTPUT_LIMIT) return finish(11);
-        output.write(decimal, written, 'ascii');
-        written += decimal.length;
+        for (let i = 0; i < decimal.length; i++) {
+          output[written++] = decimal.charCodeAt(i);
+        }
         break;
       }
       case 0x51:
@@ -167,5 +165,5 @@ for (const id of instances) {
   const destination = join(outputDir, id);
   mkdirSync(destination, { recursive: true });
   writeFileSync(join(destination, 'stdout.bin'), result.stdout);
-  writeFileSync(join(destination, 'exit.txt'), String(result.exit) + '\n');
+  writeFileSync(join(destination, 'exit.txt'), result.exit + '\n');
 }
